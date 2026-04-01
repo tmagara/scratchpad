@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pentomino Puzzle</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%; overflow-x: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #1a1a2e; color: #eee;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+#app {
+  display: flex; flex-direction: column; align-items: center;
+  min-height: 100vh; padding: 12px 8px 20px;
+}
+h1 {
+  font-size: 1.4rem; font-weight: 700; margin-bottom: 8px;
+  background: linear-gradient(135deg, #e94560, #0f3460);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+#header {
+  display: flex; align-items: center; gap: 16px; margin-bottom: 10px;
+}
+button {
+  background: #e94560; color: #fff; border: none; border-radius: 8px;
+  padding: 8px 18px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+button:active { transform: scale(0.95); }
+button:hover { background: #c73550; }
+#status {
+  font-size: 0.85rem; color: #aaa; margin-bottom: 6px; height: 1.2em;
+  transition: color 0.3s;
+}
+#board-container {
+  position: relative; display: inline-block;
+  border-radius: 8px; overflow: visible;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+#board {
+  display: grid;
+  grid-template-columns: repeat(10, var(--cell));
+  grid-template-rows: repeat(6, var(--cell));
+  gap: 1px; background: #16213e; border: 2px solid #0f3460;
+  border-radius: 8px; overflow: hidden;
+}
+.board-cell {
+  width: var(--cell); height: var(--cell);
+  background: #1a1a2e; transition: background 0.15s;
+}
+.board-cell.filled {
+  transition: background 0.1s, transform 0.15s;
+}
+.board-cell.highlight {
+  background: rgba(233,69,96,0.25);
+}
+.board-cell.highlight-valid {
+  background: rgba(80,200,120,0.25);
+}
+#pieces-area {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 10px; margin-top: 14px; max-width: 600px; padding: 0 4px;
+}
+.piece-wrapper {
+  position: relative; cursor: grab;
+  transition: transform 0.15s, opacity 0.2s;
+  border-radius: 6px; padding: 3px;
+}
+.piece-wrapper:hover { transform: scale(1.08); }
+.piece-wrapper.on-board { opacity: 0.2; pointer-events: none; }
+.piece-wrapper.dragging { opacity: 0.5; }
+.piece-grid {
+  display: grid; gap: 1px;
+}
+.piece-cell {
+  width: var(--pcell); height: var(--pcell);
+  border-radius: 2px;
+}
+.piece-cell.filled {
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,0.25), inset 0 1px 1px rgba(255,255,255,0.15);
+}
+.piece-cell.empty { background: transparent; }
+
+#drag-ghost {
+  position: fixed; pointer-events: none; z-index: 1000;
+  display: none;
+}
+#drag-ghost .piece-grid { gap: 1px; }
+#drag-ghost .piece-cell { border-radius: 2px; }
+#drag-ghost .piece-cell.filled {
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,0.25), inset 0 1px 1px rgba(255,255,255,0.15);
+}
+
+#celebration {
+  display: none; position: fixed; inset: 0; z-index: 2000;
+  justify-content: center; align-items: center;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+}
+#celebration.show { display: flex; }
+#celebration .msg {
+  text-align: center; padding: 40px;
+  background: linear-gradient(135deg, #16213e, #1a1a2e);
+  border: 2px solid #e94560; border-radius: 16px;
+  animation: popIn 0.4s ease-out;
+}
+#celebration .msg h2 { font-size: 2rem; margin-bottom: 10px; }
+#celebration .msg p { color: #aaa; margin-bottom: 20px; }
+@keyframes popIn {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.confetti {
+  position: fixed; width: 8px; height: 8px; z-index: 2001;
+  border-radius: 2px; pointer-events: none;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+#controls-hint {
+  font-size: 0.75rem; color: #666; margin-top: 8px; text-align: center;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>Pentomino Puzzle</h1>
+    <button id="resetBtn">Reset</button>
+  </div>
+  <div id="status">Place all 12 pieces on the board</div>
+  <div id="board-container">
+    <div id="board"></div>
+  </div>
+  <div id="pieces-area"></div>
+  <div id="controls-hint">Tap: rotate &bull; Double-tap: flip &bull; Drag onto board</div>
+</div>
+<div id="drag-ghost"></div>
+<div id="celebration">
+  <div class="msg">
+    <h2>Congratulations!</h2>
+    <p>You solved the puzzle!</p>
+    <button id="playAgainBtn">Play Again</button>
+  </div>
+</div>
+
+<script>
+const ROWS = 6, COLS = 10;
+
+const PENTOMINOES = {
+  F: { shape: [[0,1,1],[1,1,0],[0,1,0]], color: '#e94560' },
+  I: { shape: [[1,1,1,1,1]], color: '#0ea5e9' },
+  L: { shape: [[1,0],[1,0],[1,0],[1,1]], color: '#f97316' },
+  N: { shape: [[0,1],[1,1],[1,0],[1,0]], color: '#a855f7' },
+  P: { shape: [[1,1],[1,1],[1,0]], color: '#ec4899' },
+  T: { shape: [[1,1,1],[0,1,0],[0,1,0]], color: '#14b8a6' },
+  U: { shape: [[1,0,1],[1,1,1]], color: '#eab308' },
+  V: { shape: [[1,0,0],[1,0,0],[1,1,1]], color: '#22c55e' },
+  W: { shape: [[1,0,0],[1,1,0],[0,1,1]], color: '#6366f1' },
+  X: { shape: [[0,1,0],[1,1,1],[0,1,0]], color: '#f43f5e' },
+  Y: { shape: [[0,1],[1,1],[0,1],[0,1]], color: '#06b6d4' },
+  Z: { shape: [[1,1,0],[0,1,0],[0,1,1]], color: '#84cc16' },
+};
+
+// State
+let board = []; // board[r][c] = null or piece id
+let pieces = {}; // id -> { name, shape, color, placed: bool, boardPos: {r,c}|null }
+let cellSize, pCellSize;
+let dragState = null;
+let selectedPiece = null;
+let lastTapTime = 0;
+let lastTapPiece = null;
+let longPressTimer = null;
+
+function init() {
+  computeSizes();
+  board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  pieces = {};
+  Object.entries(PENTOMINOES).forEach(([name, def]) => {
+    pieces[name] = { name, shape: def.shape.map(r => [...r]), color: def.color, placed: false, boardPos: null };
+  });
+  renderBoard();
+  renderPieces();
+  updateStatus();
+  document.getElementById('celebration').classList.remove('show');
+}
+
+function computeSizes() {
+  const maxW = Math.min(window.innerWidth - 24, 500);
+  const maxH = window.innerHeight * 0.42;
+  cellSize = Math.floor(Math.min(maxW / COLS, maxH / ROWS));
+  cellSize = Math.max(cellSize, 28);
+  pCellSize = Math.max(Math.floor(cellSize * 0.55), 16);
+  document.documentElement.style.setProperty('--cell', cellSize + 'px');
+  document.documentElement.style.setProperty('--pcell', pCellSize + 'px');
+}
+
+function renderBoard() {
+  const el = document.getElementById('board');
+  el.innerHTML = '';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'board-cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      el.appendChild(cell);
+    }
+  }
+}
+
+function updateBoardDisplay() {
+  const cells = document.querySelectorAll('.board-cell');
+  cells.forEach(cell => {
+    const r = +cell.dataset.r, c = +cell.dataset.c;
+    const pid = board[r][c];
+    if (pid) {
+      cell.classList.add('filled');
+      cell.style.background = pieces[pid].color;
+    } else {
+      cell.classList.remove('filled');
+      cell.style.background = '';
+    }
+    cell.classList.remove('highlight', 'highlight-valid');
+  });
+}
+
+function renderPieces() {
+  const area = document.getElementById('pieces-area');
+  area.innerHTML = '';
+  Object.values(pieces).forEach(p => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'piece-wrapper' + (p.placed ? ' on-board' : '');
+    wrapper.dataset.piece = p.name;
+    wrapper.appendChild(buildPieceGrid(p.shape, p.color, pCellSize));
+    area.appendChild(wrapper);
+  });
+}
+
+function buildPieceGrid(shape, color, size) {
+  const rows = shape.length, cols = shape[0].length;
+  const grid = document.createElement('div');
+  grid.className = 'piece-grid';
+  grid.style.gridTemplateColumns = `repeat(${cols}, ${size}px)`;
+  grid.style.gridTemplateRows = `repeat(${rows}, ${size}px)`;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'piece-cell ' + (shape[r][c] ? 'filled' : 'empty');
+      if (shape[r][c]) cell.style.background = color;
+      cell.style.width = size + 'px';
+      cell.style.height = size + 'px';
+      grid.appendChild(cell);
+    }
+  }
+  return grid;
+}
+
+function rotateShape(shape) {
+  const rows = shape.length, cols = shape[0].length;
+  const out = [];
+  for (let c = 0; c < cols; c++) {
+    const row = [];
+    for (let r = rows - 1; r >= 0; r--) row.push(shape[r][c]);
+    out.push(row);
+  }
+  return out;
+}
+
+function flipShape(shape) {
+  return shape.map(row => [...row].reverse());
+}
+
+function getFilledCells(shape) {
+  const cells = [];
+  for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[0].length; c++)
+      if (shape[r][c]) cells.push([r, c]);
+  return cells;
+}
+
+function canPlace(pieceId, shape, br, bc) {
+  const cells = getFilledCells(shape);
+  for (const [dr, dc] of cells) {
+    const r = br + dr, c = bc + dc;
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    if (board[r][c] && board[r][c] !== pieceId) return false;
+  }
+  return true;
+}
+
+function placePiece(pieceId, shape, br, bc) {
+  const cells = getFilledCells(shape);
+  cells.forEach(([dr, dc]) => { board[br + dr][bc + dc] = pieceId; });
+  pieces[pieceId].placed = true;
+  pieces[pieceId].boardPos = { r: br, c: bc };
+  pieces[pieceId].shape = shape.map(r => [...r]);
+}
+
+function removePiece(pieceId) {
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      if (board[r][c] === pieceId) board[r][c] = null;
+  pieces[pieceId].placed = false;
+  pieces[pieceId].boardPos = null;
+}
+
+function isBoardFull() {
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      if (!board[r][c]) return false;
+  return true;
+}
+
+function updateStatus() {
+  const placed = Object.values(pieces).filter(p => p.placed).length;
+  const el = document.getElementById('status');
+  if (placed === 0) el.textContent = 'Place all 12 pieces on the board';
+  else if (placed === 12) el.textContent = '';
+  else el.textContent = `${placed}/12 pieces placed`;
+}
+
+// --- Drag & Drop ---
+
+function getBoardPos(clientX, clientY) {
+  const boardEl = document.getElementById('board');
+  const rect = boardEl.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const c = Math.floor(x / (cellSize + 1));
+  const r = Math.floor(y / (cellSize + 1));
+  return { r, c };
+}
+
+function showGhost(shape, color, clientX, clientY) {
+  const ghost = document.getElementById('drag-ghost');
+  ghost.innerHTML = '';
+  ghost.appendChild(buildPieceGrid(shape, color, cellSize));
+  ghost.style.display = 'block';
+  moveGhost(clientX, clientY, shape);
+}
+
+function moveGhost(clientX, clientY, shape) {
+  const ghost = document.getElementById('drag-ghost');
+  // Find first filled cell to use as anchor
+  let anchorR = 0, anchorC = 0;
+  outer: for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[0].length; c++)
+      if (shape[r][c]) { anchorR = r; anchorC = c; break outer; }
+  const w = shape[0].length * (cellSize + 1);
+  const h = shape.length * (cellSize + 1);
+  ghost.style.left = (clientX - anchorC * (cellSize + 1) - cellSize / 2) + 'px';
+  ghost.style.top = (clientY - anchorR * (cellSize + 1) - cellSize / 2) + 'px';
+}
+
+function hideGhost() {
+  document.getElementById('drag-ghost').style.display = 'none';
+}
+
+function highlightBoard(shape, br, bc, valid) {
+  clearHighlight();
+  const cells = getFilledCells(shape);
+  cells.forEach(([dr, dc]) => {
+    const r = br + dr, c = bc + dc;
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const cell = document.querySelector(`.board-cell[data-r="${r}"][data-c="${c}"]`);
+      if (cell) cell.classList.add(valid ? 'highlight-valid' : 'highlight');
+    }
+  });
+}
+
+function clearHighlight() {
+  document.querySelectorAll('.board-cell').forEach(c => c.classList.remove('highlight', 'highlight-valid'));
+}
+
+function startDrag(pieceId, clientX, clientY) {
+  const p = pieces[pieceId];
+  if (p.placed) {
+    removePiece(pieceId);
+    updateBoardDisplay();
+    renderPieces();
+  }
+  dragState = { pieceId, shape: p.shape.map(r => [...r]) };
+  showGhost(dragState.shape, p.color, clientX, clientY);
+  const wrapper = document.querySelector(`.piece-wrapper[data-piece="${pieceId}"]`);
+  if (wrapper) wrapper.classList.add('dragging');
+}
+
+function moveDrag(clientX, clientY) {
+  if (!dragState) return;
+  const { shape, pieceId } = dragState;
+  moveGhost(clientX, clientY, shape);
+  const pos = getBoardPos(clientX, clientY);
+  // Adjust pos to account for anchor offset
+  let anchorR = 0, anchorC = 0;
+  outer: for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[0].length; c++)
+      if (shape[r][c]) { anchorR = r; anchorC = c; break outer; }
+  const br = pos.r - anchorR, bc = pos.c - anchorC;
+  const valid = canPlace(pieceId, shape, br, bc);
+  highlightBoard(shape, br, bc, valid);
+}
+
+function endDrag(clientX, clientY) {
+  if (!dragState) return;
+  const { pieceId, shape } = dragState;
+  const pos = getBoardPos(clientX, clientY);
+  let anchorR = 0, anchorC = 0;
+  outer: for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[0].length; c++)
+      if (shape[r][c]) { anchorR = r; anchorC = c; break outer; }
+  const br = pos.r - anchorR, bc = pos.c - anchorC;
+  if (canPlace(pieceId, shape, br, bc)) {
+    placePiece(pieceId, shape, br, bc);
+    flashPlacement(pieceId);
+  }
+  dragState = null;
+  hideGhost();
+  clearHighlight();
+  updateBoardDisplay();
+  renderPieces();
+  updateStatus();
+  if (isBoardFull()) celebrate();
+}
+
+function flashPlacement(pieceId) {
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.board-cell').forEach(cell => {
+      const r = +cell.dataset.r, c = +cell.dataset.c;
+      if (board[r][c] === pieceId) {
+        cell.style.transform = 'scale(1.1)';
+        setTimeout(() => { cell.style.transform = ''; }, 200);
+      }
+    });
+  });
+}
+
+// --- Board click to remove ---
+function handleBoardClick(clientX, clientY) {
+  if (dragState) return;
+  const pos = getBoardPos(clientX, clientY);
+  if (pos.r < 0 || pos.r >= ROWS || pos.c < 0 || pos.c >= COLS) return;
+  const pid = board[pos.r][pos.c];
+  if (pid) {
+    removePiece(pid);
+    updateBoardDisplay();
+    renderPieces();
+    updateStatus();
+  }
+}
+
+// --- Events ---
+let dragStartPos = null;
+let dragStartTime = 0;
+const DRAG_THRESHOLD = 8;
+
+// Touch on piece area
+document.getElementById('pieces-area').addEventListener('pointerdown', e => {
+  const wrapper = e.target.closest('.piece-wrapper');
+  if (!wrapper) return;
+  const pid = wrapper.dataset.piece;
+  if (pieces[pid].placed) return;
+  e.preventDefault();
+  dragStartPos = { x: e.clientX, y: e.clientY };
+  dragStartTime = Date.now();
+
+  // Long press detection
+  longPressTimer = setTimeout(() => {
+    // Flip the piece
+    pieces[pid].shape = flipShape(pieces[pid].shape);
+    renderPieces();
+    longPressTimer = null;
+    dragStartPos = null; // cancel potential drag
+  }, 500);
+
+  const onMove = ev => {
+    if (!dragStartPos) { cleanup(); return; }
+    const dx = ev.clientX - dragStartPos.x;
+    const dy = ev.clientY - dragStartPos.y;
+    if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      startDrag(pid, ev.clientX, ev.clientY);
+      dragStartPos = null;
+      // Switch to drag handlers
+      const onDragMove = de => { de.preventDefault(); moveDrag(de.clientX, de.clientY); };
+      const onDragEnd = de => {
+        endDrag(de.clientX, de.clientY);
+        document.removeEventListener('pointermove', onDragMove);
+        document.removeEventListener('pointerup', onDragEnd);
+        document.removeEventListener('pointercancel', onDragEnd);
+      };
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
+      cleanup();
+    }
+  };
+
+  const onUp = ev => {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    if (dragStartPos) {
+      // It was a tap - check double tap
+      const now = Date.now();
+      if (lastTapPiece === pid && now - lastTapTime < 350) {
+        // Double tap -> flip
+        pieces[pid].shape = flipShape(pieces[pid].shape);
+        lastTapPiece = null;
+      } else {
+        // Single tap -> rotate
+        pieces[pid].shape = rotateShape(pieces[pid].shape);
+        lastTapPiece = pid;
+        lastTapTime = now;
+      }
+      renderPieces();
+      dragStartPos = null;
+    }
+    cleanup();
+  };
+
+  const cleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+});
+
+// Touch on board (to pick up placed pieces)
+document.getElementById('board').addEventListener('pointerdown', e => {
+  e.preventDefault();
+  const pos = getBoardPos(e.clientX, e.clientY);
+  if (pos.r < 0 || pos.r >= ROWS || pos.c < 0 || pos.c >= COLS) return;
+  const pid = board[pos.r][pos.c];
+  if (!pid) return;
+
+  dragStartPos = { x: e.clientX, y: e.clientY };
+
+  const onMove = ev => {
+    if (!dragStartPos) return;
+    const dx = ev.clientX - dragStartPos.x;
+    const dy = ev.clientY - dragStartPos.y;
+    if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+      dragStartPos = null;
+      startDrag(pid, ev.clientX, ev.clientY);
+      const onDragMove = de => { de.preventDefault(); moveDrag(de.clientX, de.clientY); };
+      const onDragEnd = de => {
+        endDrag(de.clientX, de.clientY);
+        document.removeEventListener('pointermove', onDragMove);
+        document.removeEventListener('pointerup', onDragEnd);
+        document.removeEventListener('pointercancel', onDragEnd);
+      };
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
+      cleanup();
+    }
+  };
+
+  const onUp = ev => {
+    if (dragStartPos) {
+      // Tap on board - remove piece
+      removePiece(pid);
+      updateBoardDisplay();
+      renderPieces();
+      updateStatus();
+      dragStartPos = null;
+    }
+    cleanup();
+  };
+
+  const cleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+});
+
+// Reset
+document.getElementById('resetBtn').addEventListener('click', init);
+document.getElementById('playAgainBtn').addEventListener('click', () => {
+  document.getElementById('celebration').classList.remove('show');
+  init();
+});
+
+// Resize
+window.addEventListener('resize', () => {
+  computeSizes();
+  renderBoard();
+  updateBoardDisplay();
+  renderPieces();
+});
+
+// Celebration
+function celebrate() {
+  document.getElementById('celebration').classList.add('show');
+  for (let i = 0; i < 80; i++) {
+    setTimeout(() => spawnConfetti(), i * 30);
+  }
+}
+
+function spawnConfetti() {
+  const el = document.createElement('div');
+  el.className = 'confetti';
+  const colors = ['#e94560','#0ea5e9','#f97316','#a855f7','#22c55e','#eab308','#ec4899','#14b8a6'];
+  el.style.background = colors[Math.floor(Math.random() * colors.length)];
+  el.style.left = Math.random() * 100 + 'vw';
+  el.style.top = -10 + 'px';
+  el.style.animationDuration = (1.5 + Math.random() * 2) + 's';
+  el.style.width = (6 + Math.random() * 6) + 'px';
+  el.style.height = (6 + Math.random() * 6) + 'px';
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+// Prevent scrolling on touch
+document.addEventListener('touchmove', e => {
+  if (dragState) e.preventDefault();
+}, { passive: false });
+
+init();
+</script>
+</body>
+</html>
