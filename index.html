@@ -7,14 +7,15 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
-  width: 100%; height: 100%; overflow-x: hidden;
+  width: 100%; min-height: 100%; overflow-x: hidden;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: #1a1a2e; color: #eee;
-  touch-action: none; user-select: none; -webkit-user-select: none;
+  user-select: none; -webkit-user-select: none;
 }
 #app {
   display: flex; flex-direction: column; align-items: center;
-  min-height: 100vh; padding: 12px 8px 20px;
+  padding: 12px 8px 20px; padding-bottom: 160px;
+  touch-action: pan-y;
 }
 h1 {
   font-size: 1.4rem; font-weight: 700; margin-bottom: 8px;
@@ -61,9 +62,14 @@ button:hover { background: #c73550; }
 .board-cell.highlight-valid {
   background: rgba(80,200,120,0.25);
 }
+#pieces-tray {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+  background: #1a1a2e; border-top: 2px solid #0f3460;
+  padding: 8px 4px 12px; touch-action: none;
+}
 #pieces-area {
   display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 10px; margin-top: 14px; max-width: 600px; padding: 0 4px;
+  gap: 10px; max-width: 600px; margin: 0 auto; padding: 0 4px;
 }
 .piece-wrapper {
   position: relative; cursor: grab;
@@ -125,8 +131,9 @@ button:hover { background: #c73550; }
 }
 
 #controls-hint {
-  font-size: 0.75rem; color: #666; margin-top: 8px; text-align: center;
+  font-size: 0.75rem; color: #666; margin-top: 4px; text-align: center;
 }
+#board-container, #board { touch-action: none; }
 </style>
 </head>
 <body>
@@ -139,6 +146,9 @@ button:hover { background: #c73550; }
   <div id="board-container">
     <div id="board"></div>
   </div>
+
+</div>
+<div id="pieces-tray">
   <div id="pieces-area"></div>
   <div id="controls-hint">Tap: rotate &bull; Double-tap: flip &bull; Drag onto board</div>
 </div>
@@ -194,8 +204,7 @@ function init() {
 
 function computeSizes() {
   const maxW = Math.min(window.innerWidth - 24, 500);
-  const maxH = window.innerHeight * 0.42;
-  cellSize = Math.floor(Math.min(maxW / COLS, maxH / ROWS));
+  cellSize = Math.floor(maxW / COLS);
   cellSize = Math.max(cellSize, 28);
   pCellSize = Math.max(Math.floor(cellSize * 0.55), 16);
   document.documentElement.style.setProperty('--cell', cellSize + 'px');
@@ -286,11 +295,13 @@ function getFilledCells(shape) {
   return cells;
 }
 
+function wrapCol(c) { return ((c % COLS) + COLS) % COLS; }
+
 function canPlace(pieceId, shape, br, bc) {
   const cells = getFilledCells(shape);
   for (const [dr, dc] of cells) {
-    const r = br + dr, c = bc + dc;
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    const r = br + dr, c = wrapCol(bc + dc);
+    if (r < 0 || r >= ROWS) return false;
     if (board[r][c] && board[r][c] !== pieceId) return false;
   }
   return true;
@@ -298,7 +309,7 @@ function canPlace(pieceId, shape, br, bc) {
 
 function placePiece(pieceId, shape, br, bc) {
   const cells = getFilledCells(shape);
-  cells.forEach(([dr, dc]) => { board[br + dr][bc + dc] = pieceId; });
+  cells.forEach(([dr, dc]) => { board[br + dr][wrapCol(bc + dc)] = pieceId; });
   pieces[pieceId].placed = true;
   pieces[pieceId].boardPos = { r: br, c: bc };
   pieces[pieceId].shape = shape.map(r => [...r]);
@@ -368,8 +379,8 @@ function highlightBoard(shape, br, bc, valid) {
   clearHighlight();
   const cells = getFilledCells(shape);
   cells.forEach(([dr, dc]) => {
-    const r = br + dr, c = bc + dc;
-    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+    const r = br + dr, c = wrapCol(bc + dc);
+    if (r >= 0 && r < ROWS) {
       const cell = document.querySelector(`.board-cell[data-r="${r}"][data-c="${c}"]`);
       if (cell) cell.classList.add(valid ? 'highlight-valid' : 'highlight');
     }
@@ -626,9 +637,13 @@ function spawnConfetti() {
   el.addEventListener('animationend', () => el.remove());
 }
 
-// Prevent scrolling on touch
+// Prevent scrolling during drag
 document.addEventListener('touchmove', e => {
   if (dragState) e.preventDefault();
+}, { passive: false });
+// Prevent scrolling on piece tray touches
+document.getElementById('pieces-tray').addEventListener('touchmove', e => {
+  e.preventDefault();
 }, { passive: false });
 
 init();
