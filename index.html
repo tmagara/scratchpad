@@ -14,7 +14,7 @@ html, body {
 }
 #app {
   display: flex; flex-direction: column; align-items: center;
-  padding: 12px 8px 20px; padding-bottom: 160px;
+  padding: 8px 4px 20px; padding-bottom: 180px;
   touch-action: pan-y;
 }
 h1 {
@@ -44,14 +44,17 @@ button:hover { background: #c73550; }
 }
 #board {
   display: grid;
-  grid-template-columns: repeat(10, var(--cell));
-  grid-template-rows: repeat(6, var(--cell));
+  grid-template-columns: repeat(6, var(--cell)) 2px repeat(6, var(--cell));
+  grid-template-rows: repeat(10, var(--cell));
   gap: 1px; background: #16213e; border: 2px solid #0f3460;
   border-radius: 8px; overflow: hidden;
 }
 .board-cell {
   width: var(--cell); height: var(--cell);
   background: #1a1a2e; transition: background 0.15s;
+}
+.wrap-divider {
+  width: 2px; background: #e94560aa; grid-row: span 10;
 }
 .board-cell.filled {
   transition: background 0.1s, transform 0.15s;
@@ -162,7 +165,7 @@ button:hover { background: #c73550; }
 </div>
 
 <script>
-const ROWS = 6, COLS = 10;
+const ROWS = 10, COLS = 6;
 
 const PENTOMINOES = {
   F: { shape: [[0,1,1],[1,1,0],[0,1,0]], color: '#e94560' },
@@ -202,9 +205,11 @@ function init() {
   document.getElementById('celebration').classList.remove('show');
 }
 
+const DISPLAY_COLS = COLS * 2; // 12 visual columns (two cycles)
+
 function computeSizes() {
-  const maxW = Math.min(window.innerWidth - 24, 500);
-  cellSize = Math.floor(maxW / COLS);
+  const maxW = window.innerWidth - 16;
+  cellSize = Math.floor((maxW - 2) / DISPLAY_COLS); // subtract divider width
   cellSize = Math.max(cellSize, 28);
   pCellSize = Math.max(Math.floor(cellSize * 0.55), 16);
   document.documentElement.style.setProperty('--cell', cellSize + 'px');
@@ -214,21 +219,32 @@ function computeSizes() {
 function renderBoard() {
   const el = document.getElementById('board');
   el.innerHTML = '';
+  // First row: add divider element that spans all rows
+  const divider = document.createElement('div');
+  divider.className = 'wrap-divider';
+  divider.style.gridColumn = (COLS + 1).toString();
+  divider.style.gridRow = '1 / -1';
+
   for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
+    for (let vc = 0; vc < DISPLAY_COLS; vc++) {
       const cell = document.createElement('div');
       cell.className = 'board-cell';
       cell.dataset.r = r;
-      cell.dataset.c = c;
+      cell.dataset.c = vc % COLS;     // logical column
+      cell.dataset.vc = vc;           // visual column
+      // Place in correct grid column (skip column 7 which is the divider)
+      cell.style.gridColumn = (vc < COLS ? vc + 1 : vc + 2).toString();
+      cell.style.gridRow = (r + 1).toString();
       el.appendChild(cell);
     }
   }
+  el.appendChild(divider);
 }
 
 function updateBoardDisplay() {
   const cells = document.querySelectorAll('.board-cell');
   cells.forEach(cell => {
-    const r = +cell.dataset.r, c = +cell.dataset.c;
+    const r = +cell.dataset.r, c = +cell.dataset.c; // c is logical
     const pid = board[r][c];
     if (pid) {
       cell.classList.add('filled');
@@ -345,8 +361,17 @@ function getBoardPos(clientX, clientY) {
   const rect = boardEl.getBoundingClientRect();
   const x = clientX - rect.left;
   const y = clientY - rect.top;
-  const c = Math.floor(x / (cellSize + 1));
   const r = Math.floor(y / (cellSize + 1));
+  // Account for the 2px divider between the two halves
+  const firstHalfWidth = COLS * (cellSize + 1);
+  const dividerWidth = 2 + 1; // divider col + gap
+  let vc;
+  if (x < firstHalfWidth) {
+    vc = Math.floor(x / (cellSize + 1));
+  } else {
+    vc = COLS + Math.floor((x - firstHalfWidth - dividerWidth) / (cellSize + 1));
+  }
+  const c = ((vc % COLS) + COLS) % COLS; // logical column
   return { r, c };
 }
 
@@ -381,8 +406,10 @@ function highlightBoard(shape, br, bc, valid) {
   cells.forEach(([dr, dc]) => {
     const r = br + dr, c = wrapCol(bc + dc);
     if (r >= 0 && r < ROWS) {
-      const cell = document.querySelector(`.board-cell[data-r="${r}"][data-c="${c}"]`);
-      if (cell) cell.classList.add(valid ? 'highlight-valid' : 'highlight');
+      // Highlight on both copies
+      document.querySelectorAll(`.board-cell[data-r="${r}"][data-c="${c}"]`).forEach(cell => {
+        cell.classList.add(valid ? 'highlight-valid' : 'highlight');
+      });
     }
   });
 }
@@ -444,7 +471,7 @@ function endDrag(clientX, clientY) {
 function flashPlacement(pieceId) {
   requestAnimationFrame(() => {
     document.querySelectorAll('.board-cell').forEach(cell => {
-      const r = +cell.dataset.r, c = +cell.dataset.c;
+      const r = +cell.dataset.r, c = +cell.dataset.c; // c is logical
       if (board[r][c] === pieceId) {
         cell.style.transform = 'scale(1.1)';
         setTimeout(() => { cell.style.transform = ''; }, 200);
