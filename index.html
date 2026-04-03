@@ -44,17 +44,20 @@ button:hover { background: #c73550; }
 }
 #board {
   display: grid;
-  grid-template-columns: repeat(6, var(--cell)) 2px repeat(6, var(--cell));
+  grid-template-columns: repeat(6, var(--cell)) 6px repeat(6, var(--cell));
   grid-template-rows: repeat(10, var(--cell));
   gap: 1px; background: #16213e; border: 2px solid #0f3460;
   border-radius: 8px; overflow: hidden;
 }
 .board-cell {
+  position: relative;
   width: var(--cell); height: var(--cell);
   background: #1a1a2e; transition: background 0.15s;
 }
 .wrap-divider {
-  width: 2px; background: #e94560aa; grid-row: span 10;
+  width: 6px; grid-row: span 10;
+  background: linear-gradient(to right, #1a1a2e, #3a3a5e);
+  border: none;
 }
 .board-cell.filled {
   transition: background 0.1s, transform 0.15s;
@@ -65,6 +68,41 @@ button:hover { background: #c73550; }
 .board-cell.highlight-valid {
   background: rgba(80,200,120,0.25);
 }
+/* Inverted cycle highlights */
+.board-cell.highlight-inv {
+  background: rgba(233,69,96,0.2);
+}
+.board-cell.highlight-valid-inv {
+  background: rgba(80,200,120,0.2);
+}
+
+/* Boundary blend overlays on cells adjacent to the divider */
+.board-cell.blend-right::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, transparent 30%, rgba(58,58,94,0.35));
+  pointer-events: none;
+}
+.board-cell.blend-left::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to left, transparent 30%, rgba(26,26,46,0.35));
+  pointer-events: none;
+}
+/* Edge fade at the outer boundaries to suggest Möbius wrap */
+.board-cell.edge-left::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, rgba(58,58,94,0.25), transparent 60%);
+  pointer-events: none;
+}
+.board-cell.edge-right::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to left, rgba(26,26,46,0.25), transparent 60%);
+  pointer-events: none;
+}
+
 #pieces-tray {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
   background: #1a1a2e; border-top: 2px solid #0f3460;
@@ -166,6 +204,9 @@ button:hover { background: #c73550; }
 
 <script>
 const ROWS = 10, COLS = 6;
+const DISPLAY_COLS = COLS * 2; // 12 visual columns (two cycles)
+const GROUND_COLOR = '#3a3a5e'; // soft ground color for inverted cycle
+const BG_COLOR = '#1a1a2e';     // dark empty background
 
 const PENTOMINOES = {
   F: { shape: [[0,1,1],[1,1,0],[0,1,0]], color: '#e94560' },
@@ -205,11 +246,9 @@ function init() {
   document.getElementById('celebration').classList.remove('show');
 }
 
-const DISPLAY_COLS = COLS * 2; // 12 visual columns (two cycles)
-
 function computeSizes() {
   const maxW = window.innerWidth - 16;
-  cellSize = Math.floor((maxW - 2) / DISPLAY_COLS); // subtract divider width
+  cellSize = Math.floor((maxW - 6) / DISPLAY_COLS); // subtract divider width
   cellSize = Math.max(cellSize, 28);
   pCellSize = Math.max(Math.floor(cellSize * 0.55), 16);
   document.documentElement.style.setProperty('--cell', cellSize + 'px');
@@ -219,7 +258,7 @@ function computeSizes() {
 function renderBoard() {
   const el = document.getElementById('board');
   el.innerHTML = '';
-  // First row: add divider element that spans all rows
+  // Divider element spanning all rows
   const divider = document.createElement('div');
   divider.className = 'wrap-divider';
   divider.style.gridColumn = (COLS + 1).toString();
@@ -235,6 +274,14 @@ function renderBoard() {
       // Place in correct grid column (skip column 7 which is the divider)
       cell.style.gridColumn = (vc < COLS ? vc + 1 : vc + 2).toString();
       cell.style.gridRow = (r + 1).toString();
+
+      // Boundary blend classes
+      if (vc === COLS - 1) cell.classList.add('blend-right');   // last col of cycle 1
+      if (vc === COLS) cell.classList.add('blend-left');        // first col of cycle 2
+      // Edge fade classes for Möbius wrap suggestion
+      if (vc === 0) cell.classList.add('edge-left');
+      if (vc === DISPLAY_COLS - 1) cell.classList.add('edge-right');
+
       el.appendChild(cell);
     }
   }
@@ -244,16 +291,32 @@ function renderBoard() {
 function updateBoardDisplay() {
   const cells = document.querySelectorAll('.board-cell');
   cells.forEach(cell => {
-    const r = +cell.dataset.r, c = +cell.dataset.c; // c is logical
+    const r = +cell.dataset.r, c = +cell.dataset.c;
+    const vc = +cell.dataset.vc;
     const pid = board[r][c];
-    if (pid) {
-      cell.classList.add('filled');
-      cell.style.background = pieces[pid].color;
+    const isCycle2 = vc >= COLS;
+
+    cell.classList.remove('highlight', 'highlight-valid', 'highlight-inv', 'highlight-valid-inv');
+
+    if (isCycle2) {
+      // Inverted display: occupied -> hole (dark), empty -> ground
+      if (pid) {
+        cell.classList.remove('filled');
+        cell.style.background = BG_COLOR;
+      } else {
+        cell.classList.add('filled');
+        cell.style.background = GROUND_COLOR;
+      }
     } else {
-      cell.classList.remove('filled');
-      cell.style.background = '';
+      // Normal display (cycle 1)
+      if (pid) {
+        cell.classList.add('filled');
+        cell.style.background = pieces[pid].color;
+      } else {
+        cell.classList.remove('filled');
+        cell.style.background = '';
+      }
     }
-    cell.classList.remove('highlight', 'highlight-valid');
   });
 }
 
@@ -362,9 +425,9 @@ function getBoardPos(clientX, clientY) {
   const x = clientX - rect.left;
   const y = clientY - rect.top;
   const r = Math.floor(y / (cellSize + 1));
-  // Account for the 2px divider between the two halves
+  // Account for the 6px divider between the two halves
   const firstHalfWidth = COLS * (cellSize + 1);
-  const dividerWidth = 2 + 1; // divider col + gap
+  const dividerWidth = 6 + 1; // divider col + gap
   let vc;
   if (x < firstHalfWidth) {
     vc = Math.floor(x / (cellSize + 1));
@@ -390,8 +453,6 @@ function moveGhost(clientX, clientY, shape) {
   outer: for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[0].length; c++)
       if (shape[r][c]) { anchorR = r; anchorC = c; break outer; }
-  const w = shape[0].length * (cellSize + 1);
-  const h = shape.length * (cellSize + 1);
   ghost.style.left = (clientX - anchorC * (cellSize + 1) - cellSize / 2) + 'px';
   ghost.style.top = (clientY - anchorR * (cellSize + 1) - cellSize / 2) + 'px';
 }
@@ -406,16 +467,24 @@ function highlightBoard(shape, br, bc, valid) {
   cells.forEach(([dr, dc]) => {
     const r = br + dr, c = wrapCol(bc + dc);
     if (r >= 0 && r < ROWS) {
-      // Highlight on both copies
+      // Highlight on both copies with appropriate style
       document.querySelectorAll(`.board-cell[data-r="${r}"][data-c="${c}"]`).forEach(cell => {
-        cell.classList.add(valid ? 'highlight-valid' : 'highlight');
+        const vc = +cell.dataset.vc;
+        if (vc >= COLS) {
+          // Cycle 2: inverted highlight
+          cell.classList.add(valid ? 'highlight-valid-inv' : 'highlight-inv');
+        } else {
+          // Cycle 1: normal highlight
+          cell.classList.add(valid ? 'highlight-valid' : 'highlight');
+        }
       });
     }
   });
 }
 
 function clearHighlight() {
-  document.querySelectorAll('.board-cell').forEach(c => c.classList.remove('highlight', 'highlight-valid'));
+  document.querySelectorAll('.board-cell').forEach(c =>
+    c.classList.remove('highlight', 'highlight-valid', 'highlight-inv', 'highlight-valid-inv'));
 }
 
 function startDrag(pieceId, clientX, clientY) {
